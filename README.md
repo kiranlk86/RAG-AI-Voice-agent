@@ -11,7 +11,7 @@ and remembers the conversation context across turns — like a phone call.
 | [Qdrant](https://qdrant.tech) | Vector database (RAG) | latest |
 | [sentence-transformers](https://sbert.net) | Document embeddings | 3.3+ |
 | [edge-tts](https://github.com/rany2/edge-tts) | Text → Speech | 7.2.8+ |
-| [OpenRouter](https://openrouter.ai) | LLM API (Mistral 7B free) | — |
+| [OpenRouter](https://openrouter.ai) | LLM API (openrouter/free) | — |
 | [n8n](https://n8n.io) | Workflow orchestration | community |
 
 ## Prerequisites
