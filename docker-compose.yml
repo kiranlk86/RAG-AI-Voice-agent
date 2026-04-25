@@ -1,0 +1,61 @@
+services:
+
+  # ── Vector Database ─────────────────────────────────────────────
+  va-qdrant:
+    image: qdrant/qdrant:latest
+    container_name: va-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  # ── Speech to Text ──────────────────────────────────────────────
+  va-whisper:
+    build:
+      context: ./services/whisper
+    container_name: va-whisper
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - WHISPER_MODEL=${WHISPER_MODEL:-base}
+    env_file:
+      - .env
+
+  # ── Text to Speech ──────────────────────────────────────────────
+  va-tts:
+    build:
+      context: ./services/tts
+    container_name: va-tts
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+
+  # ── RAG / Knowledge Base ────────────────────────────────────────
+  va-rag:
+    build:
+      context: ./services/rag
+    container_name: va-rag
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - QDRANT_HOST=va-qdrant
+      - QDRANT_PORT=6333
+    depends_on:
+      - va-qdrant
+
+  va-llm:
+    build:
+      context: ./services/llm
+    container_name: va-llm
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    env_file:
+      - .env
+
+volumes:
+  qdrant_storage:

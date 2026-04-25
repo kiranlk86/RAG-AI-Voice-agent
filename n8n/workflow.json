@@ -1,0 +1,185 @@
+{
+  "name": "Voice Agent — RAG + Memory",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-agent",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "n1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "voice-agent"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://va-whisper:8001/transcribe",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "audio",
+              "inputDataFieldName": "audio"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n2",
+      "name": "Whisper STT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Load Conversation History ──────────────────────────────\n// Reads the session's message history from n8n static data.\n// History is keyed by session_id from the URL query parameter.\n\nconst staticData = $getWorkflowStaticData('global');\nconst sessionId  = $('Webhook').item.json.query?.session_id || 'default';\nconst transcript = $input.first().json.transcript || '';\n\n// Initialise storage\nif (!staticData.sessions) staticData.sessions = {};\n\n// Expire sessions inactive for > 30 minutes\nconst EXPIRE_MS = 30 * 60 * 1000;\nconst now = Date.now();\nfor (const [sid, s] of Object.entries(staticData.sessions)) {\n  if (now - (s.lastActivity || 0) > EXPIRE_MS) {\n    delete staticData.sessions[sid];\n  }\n}\n\n// Load this session's history (or start fresh)\nconst history = staticData.sessions[sessionId]?.messages || [];\n\nreturn [{ json: { session_id: sessionId, transcript, history } }];"
+      },
+      "id": "n3",
+      "name": "Load History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://va-rag:8003/query",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"query\": \"{{ $json.transcript }}\",\n  \"n_results\": 3\n}",
+        "options": {}
+      },
+      "id": "n4",
+      "name": "RAG Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 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"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "http://localhost:3000"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"model\": \"openrouter/free\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a helpful AI support agent. Answer the user's question using ONLY the context provided below. If the answer is not in the context, say: I don't have that information — please contact support directly. Keep answers under 3 sentences.\\n\\nKNOWLEDGE BASE CONTEXT:\\n{{ $('RAG Query').item.json.context }}\"\n    },\n    ...{{ $('Load History').item.json.history }},\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $('Load History').item.json.transcript }}\"\n    }\n  ],\n  \"max_tokens\": 300,\n  \"temperature\": 0.3\n}",
+        "options": {}
+      },
+      "id": "n5",
+      "name": "Google Generative Language API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Save Conversation History ──────────────────────────────\n// Appends the latest user + assistant turn to static data.\n// Trims to last 20 messages (10 turns) to manage context size.\n\nconst staticData = $getWorkflowStaticData('global');\nconst sessionId  = $('Load History').item.json.session_id;\nconst transcript = $('Load History').item.json.transcript;\nconst aiReply    = $input.first().json.choices?.[0]?.message?.content || '';\n\nif (!staticData.sessions) staticData.sessions = {};\nif (!staticData.sessions[sessionId]) {\n  staticData.sessions[sessionId] = { messages: [], lastActivity: Date.now() };\n}\n\nconst session = staticData.sessions[sessionId];\n\n// Add this turn\nsession.messages.push({ role: 'user',      content: transcript });\nsession.messages.push({ role: 'assistant', content: aiReply });\n\n// Keep last 20 messages (10 turns)\nif (session.messages.length > 20) {\n  session.messages = session.messages.slice(-20);\n}\n\nsession.lastActivity = Date.now();\n\nreturn [{ json: { text: aiReply, session_id: sessionId, transcript } }];"
+      },
+      "id": "n6",
+      "name": "Save History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://va-tts:8002/synthesize",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"text\": \"{{ $json.text }}\",\n  \"voice\": \"en-US-AriaNeural\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "n7",
+      "name": "TTS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "X-Transcript",
+                "value": "={{ encodeURIComponent($('Load History').item.json.transcript) }}"
+              },
+              {
+                "name": "X-Reply",
+                "value": "={{ encodeURIComponent($('Save History').item.json.text) }}"
+              }
+            ]
+          }
+        },
+        "respondWith": "binary",
+        "responseBinaryPropertyName": "data"
+      },
+      "id": "n8",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1740, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Whisper STT", "type": "main", "index": 0 }]]
+    },
+    "Whisper STT": {
+      "main": [[{ "node": "Load History", "type": "main", "index": 0 }]]
+    },
+    "Load History": {
+      "main": [[{ "node": "RAG Query", "type": "main", "index": 0 }]]
+    },
+    "RAG Query": {
+      "main": [[{ "node": "OpenRouter", "type": "main", "index": 0 }]]
+    },
+    "OpenRouter": {
+      "main": [[{ "node": "Save History", "type": "main", "index": 0 }]]
+    },
+    "Save History": {
+      "main": [[{ "node": "TTS", "type": "main", "index": 0 }]]
+    },
+    "TTS": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

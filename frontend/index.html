@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Voice Agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0a0a;
+      --surface:   #141414;
+      --border:    #1e1e1e;
+      --text:      #e8e8e8;
+      --muted:     #555;
+      --accent:    #3b82f6;
+      --green:     #4ade80;
+      --red:       #ef4444;
+      --amber:     #f59e0b;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      gap: 1.5rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 520px;
+    }
+
+    .header { text-align: center; margin-bottom: 2rem; }
+    .logo { font-size: 2.2rem; margin-bottom: 0.5rem; }
+    h1 { font-size: 1.3rem; font-weight: 600; margin-bottom: 0.4rem; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: #0d2b1a; color: var(--green);
+      font-size: 0.68rem; font-weight: 500;
+      padding: 3px 12px; border-radius: 999px;
+    }
+    .badge::before { content: '●'; font-size: 0.5rem; }
+
+    .history {
+      max-height: 240px;
+      overflow-y: auto;
+      margin-bottom: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      scroll-behavior: smooth;
+    }
+    .history:empty::after {
+      content: 'Your conversation will appear here.';
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-align: center;
+      padding: 1rem 0;
+      display: block;
+    }
+
+    .msg {
+      padding: 0.65rem 0.9rem;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      line-height: 1.55;
+      max-width: 88%;
+    }
+    .msg.user {
+      background: #1a2a3a;
+      color: #93c5fd;
+      align-self: flex-end;
+      text-align: right;
+    }
+    .msg.assistant {
+      background: #111;
+      border: 1px solid var(--border);
+      color: #ccc;
+      align-self: flex-start;
+    }
+
+    .controls { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+
+    #recordBtn {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      border: 2.5px solid #2a2a2a;
+      background: #1a1a1a;
+      color: var(--text);
+      font-size: 2rem;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      display: flex; align-items: center; justify-content: center;
+      user-select: none; -webkit-user-select: none;
+    }
+    #recordBtn:hover { border-color: #404040; }
+    #recordBtn.recording {
+      border-color: var(--red);
+      background: #1f0f0f;
+      animation: ripple 1.4s ease-in-out infinite;
+    }
+    @keyframes ripple {
+      0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.35); }
+      70%  { box-shadow: 0 0 0 18px rgba(239,68,68,0); }
+      100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+    }
+
+    #status {
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-align: center;
+      min-height: 1.1rem;
+      transition: color 0.2s;
+    }
+    #status.listening  { color: var(--accent); }
+    #status.processing { color: var(--amber); }
+    #status.done       { color: var(--green); }
+    #status.error      { color: var(--red); }
+
+    #newSessionBtn {
+      background: none;
+      border: 1px solid #2a2a2a;
+      color: var(--muted);
+      font-size: 0.75rem;
+      padding: 5px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #newSessionBtn:hover { border-color: #555; color: #888; }
+
+    audio { width: 100%; border-radius: 6px; display: none; margin-top: 0.5rem; }
+
+    footer {
+      font-size: 0.7rem;
+      color: #222;
+      display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;
+    }
+    footer span { transition: color 0.2s; }
+    footer span:hover { color: #555; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="header">
+      <div class="logo">🎙</div>
+      <h1>AI Voice Agent</h1>
+      <div class="badge">Running Locally</div>
+    </div>
+
+    <div id="history" class="history"></div>
+
+    <div class="controls">
+      <button id="recordBtn" title="Hold to record">🎤</button>
+      <p id="status">Ready — hold to speak</p>
+      <audio id="player" controls></audio>
+      <button id="newSessionBtn">↺ New conversation</button>
+    </div>
+  </div>
+
+  <footer>
+    <span>Whisper 1.1</span>
+    <span>Qdrant</span>
+    <span>OpenRouter</span>
+    <span>edge-tts 7.2.8</span>
+    <span>n8n</span>
+  </footer>
+
+  <script>
+    // ── Config ─────────────────────────────────────────────────────
+    const N8N_WEBHOOK = 'http://localhost:5678/webhook/voice-agent';
+
+    // ── Detect best audio format once at startup ───────────────────
+    // Chrome/Edge: webm+opus | Safari: mp4 | Firefox fallback: ogg
+    const MIME_TYPE = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/mp4')
+      ? 'audio/mp4'
+      : 'audio/ogg;codecs=opus';
+
+    const FILE_EXT = MIME_TYPE.includes('mp4') ? 'mp4'
+                   : MIME_TYPE.includes('ogg') ? 'ogg'
+                   : 'webm';
+
+    console.log(`Audio format: ${MIME_TYPE} → .${FILE_EXT}`);
+
+    // ── Session ID ─────────────────────────────────────────────────
+    function newSessionId() {
+      return 'xxxx-xxxx-xxxx'.replace(/x/g, () =>
+        Math.floor(Math.random() * 16).toString(16)
+      );
+    }
+    let SESSION_ID = newSessionId();
+
+    // ── DOM refs ───────────────────────────────────────────────────
+    const btn           = document.getElementById('recordBtn');
+    const status        = document.getElementById('status');
+    const player        = document.getElementById('player');
+    const history       = document.getElementById('history');
+    const newSessionBtn = document.getElementById('newSessionBtn');
+
+    // ── Helpers ────────────────────────────────────────────────────
+    function setStatus(msg, cls = '') {
+      status.textContent = msg;
+      status.className   = cls;
+    }
+
+    function addMessage(role, text) {
+      const div = document.createElement('div');
+      div.className   = `msg ${role}`;
+      div.textContent = text;
+      history.appendChild(div);
+      history.scrollTop = history.scrollHeight;
+    }
+
+    // ── New conversation ───────────────────────────────────────────
+    newSessionBtn.addEventListener('click', () => {
+      SESSION_ID       = newSessionId();
+      history.innerHTML = '';
+      player.style.display = 'none';
+      setStatus('New conversation started', 'done');
+      setTimeout(() => setStatus('Ready — hold to speak'), 2000);
+    });
+
+    // ── Recording state ────────────────────────────────────────────
+    // Single variable — always called `recorder`; no mixing with `mediaRecorder`
+    let recorder = null;
+    let chunks   = [];
+
+    async function startRecording() {
+      chunks = [];
+      player.style.display = 'none';
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        // Use the format detected at startup — consistent across start and stop
+        recorder = new MediaRecorder(stream, { mimeType: MIME_TYPE });
+
+        recorder.ondataavailable = e => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.start(100); // collect data every 100 ms
+        btn.classList.add('recording');
+        btn.textContent = '⏹';
+        setStatus('Listening...', 'listening');
+
+      } catch (err) {
+        setStatus('Microphone blocked — allow access in browser settings', 'error');
+        console.error('Mic error:', err);
+      }
+    }
+
+    function stopRecording() {
+      // Guard: do nothing if recorder was never created or already stopped
+      if (!recorder || recorder.state === 'inactive') return;
+
+      recorder.stop();
+      recorder.stream.getTracks().forEach(t => t.stop());
+
+      btn.classList.remove('recording');
+      btn.textContent = '🎤';
+      setStatus('Sending to Whisper...', 'processing');
+
+      recorder.onstop = async () => {
+        // Build the audio blob using the same MIME_TYPE detected at startup
+        const blob = new Blob(chunks, { type: MIME_TYPE });
+        const form = new FormData();
+        form.append('audio', blob, `recording.${FILE_EXT}`);
+
+        // Pass session_id as URL query parameter for n8n to read
+        const url = `${N8N_WEBHOOK}?session_id=${SESSION_ID}`;
+
+        try {
+          setStatus('Whisper → Qdrant → OpenRouter → TTS...', 'processing');
+
+          const res = await fetch(url, { method: 'POST', body: form });
+
+          if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            throw new Error(`n8n error ${res.status}: ${errText.slice(0, 200)}`);
+          }
+
+          // Read transcript and AI reply from custom response headers
+          const tx = res.headers.get('X-Transcript');
+          const rp = res.headers.get('X-Reply');
+          if (tx) addMessage('user',      decodeURIComponent(tx));
+          if (rp) addMessage('assistant', decodeURIComponent(rp));
+
+          // Play the returned audio
+          const audioBlob = await res.blob();
+          player.src           = URL.createObjectURL(audioBlob);
+          player.style.display = 'block';
+          await player.play().catch(() => {
+            // Autoplay blocked by browser — controls still visible so user can press play
+          });
+          setStatus('Done ✓', 'done');
+
+        } catch (err) {
+          setStatus(`Error: ${err.message}`, 'error');
+          console.error('Fetch error:', err);
+        }
+      };
+    }
+
+    // ── Button events — mouse and touch ────────────────────────────
+    btn.addEventListener('mousedown',  startRecording);
+    btn.addEventListener('mouseup',    stopRecording);
+    btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); }, { passive: false });
+    btn.addEventListener('touchend',   e => { e.preventDefault(); stopRecording();   }, { passive: false });
+  </script>
+</body>
+</html>
