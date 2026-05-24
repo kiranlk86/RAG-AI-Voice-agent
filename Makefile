@@ -1,11 +1,78 @@
-# ── Voice Agent Makefile ──────────────────────────────────────────
-# Usage: make <target>
+# ── Voice Agent Makefile ────────────────────────────────────────────
+# One-command GitHub operations + Docker lifecycle
+#
+# Usage:
+#   make push       Stage all, commit with message, push to origin
+#   make release    Push + create GitHub release with auto-generated notes
+#   make license    Ensure MIT LICENSE file is present
+#   make status     Show git status + remote info + Docker containers
+#   make all        Build + start + status
+#   make help       Show this help
 
-.PHONY: start stop restart status logs build \
-        connect-n8n ingest status reset-kb \
-        frontend test-whisper test-tts test-rag help
+# ── Docker targets (original) ──────────────────────────────────────
+.PHONY: start stop restart docker-build docker-status logs build \
+        connect-n8n ingest reset-kb query frontend \
+        test-whisper test-tts test-rag test-qdrant help
+
+# ── GitHub targets ─────────────────────────────────────────────────
+.PHONY: push release license gh-status
+
+REMOTE   ?= origin
+BRANCH   ?= main
+MESSAGE  ?= Update: $(shell date +%Y-%m-%d) — $(m)
+
+## Stage all changes, commit, and push
+push:
+	@git add -A
+	@git diff --cached --quiet && echo "Nothing to commit." || \
+		git commit -m "chore: $(MESSAGE)"
+	git push $(REMOTE) $(BRANCH)
+	@echo "✅ Pushed to $(REMOTE)/$(BRANCH)"
+
+## Push and create a GitHub release
+release: push
+	@TAG=$$(git describe --tags --abbrev=0 2>/dev/null || echo ""); \
+	if [ -z "$$TAG" ]; then \
+		echo "No existing tags. Creating v0.1.0"; \
+		TAG="v0.1.0"; \
+	else \
+		MAJOR=$$(echo $$TAG | cut -d. -f1 | tr -d 'v'); \
+		MINOR=$$(echo $$TAG | cut -d. -f2); \
+		PATCH=$$(echo $$TAG | cut -d. -f3); \
+		PATCH=$$((PATCH + 1)); \
+		TAG="v$$MAJOR.$$MINOR.$$PATCH"; \
+		echo "Bumping tag: $$TAG"; \
+	fi; \
+	git tag $$TAG && git push $(REMOTE) $$TAG; \
+	gh release create $$TAG \
+		--repo kiranklabs/RAG-AI-Voice-agent \
+		--generate-notes \
+		--title "Voice Agent $$TAG"; \
+	"✅ Released $$TAG"
+
+## Ensure LICENSE file exists
+license:
+	@test -f LICENSE && echo "✅ LICENSE already exists" || \
+		(echo "Adding MIT LICENSE..." && curl -sL https://www.mit.edu/~mdillon/website/licenses/mit-license.txt -o LICENSE && echo "✅ LICENSE added")
+
+## Show repo status + Docker status
+status:
+	@echo "── Git Status ──"
+	@git status -s
+	@echo ""
+	@echo "── Remote ──"
+	@git remote -v
+	@echo ""
+	@echo "── Latest Commits ──"
+	@git log --oneline -5
+	@echo ""
+	@echo "── Docker Services ──"
+	@docker compose ps 2>/dev/null || echo "Docker not running"
 
 # ── Docker lifecycle ─────────────────────────────────────────────
+
+build:
+	docker compose up -d --build
 
 start:
 	docker compose up -d
@@ -15,15 +82,6 @@ stop:
 
 restart:
 	docker compose restart
-
-build:
-	docker compose up -d --build
-
-status:
-	@echo "\n── Docker services ──"
-	@docker compose ps
-	@echo "\n── Knowledge base ──"
-	@curl -s http://localhost:8003/health | python3 -m json.tool
 
 logs:
 	docker compose logs -f
@@ -98,22 +156,29 @@ help:
 	@echo ""
 	@echo "Voice Agent — available commands:"
 	@echo ""
-	@echo "  make build                   Build and start all services"
-	@echo "  make start                   Start services (no rebuild)"
-	@echo "  make stop                    Stop all services"
-	@echo "  make status                  Show service status + KB stats"
-	@echo "  make logs                    Stream all logs"
-	@echo "  make logs-va-rag             Stream one service's logs"
+	@echo "  GitHub:"
+	@echo "    make push          Stage all, commit, push to origin"
+	@echo "    make push m='msg'  Push with custom commit message"
+	@echo "    make release       Push + create GitHub release (auto-bump)"
+	@echo "    make status        Git status + Docker status"
 	@echo ""
-	@echo "  make connect-n8n N8N=<name>  Connect n8n to this network"
+	@echo "  Docker:"
+	@echo "    make build         Build all containers and start"
+	@echo "    make start         Start without rebuilding"
+	@echo "    make stop          Stop all containers"
+	@echo "    make status        Show container status"
+	@echo "    make logs          Stream all logs"
+	@echo "    make logs-va-rag   Stream one service's logs"
 	@echo ""
-	@echo "  make ingest FILE=<path>      Ingest a PDF or TXT file"
-	@echo "  make reset-kb                Wipe knowledge base"
-	@echo "  make query Q=\"question\"      Test RAG search directly"
+	@echo "  Knowledge base:"
+	@echo "    make ingest FILE=<path>      Ingest a PDF or TXT"
+	@echo "    make reset-kb                Wipe knowledge base"
+	@echo "    make query Q=\"question\"      Test RAG directly"
 	@echo ""
-	@echo "  make frontend                Serve frontend at localhost:3000"
-	@echo ""
-	@echo "  make test-whisper            Health check Whisper"
-	@echo "  make test-tts                Generate test audio"
-	@echo "  make test-rag                Health check RAG"
+	@echo "  Other:"
+	@echo "    make connect-n8n N8N=<name>  Bridge n8n to network"
+	@echo "    make frontend                Serve UI at localhost:3000"
+	@echo "    make test-whisper            Health check Whisper"
+	@echo "    make test-tts                Generate test audio"
+	@echo "    make test-rag                Health check RAG"
 	@echo ""
